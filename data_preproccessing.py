@@ -161,8 +161,6 @@ app.layout = html.Div([
                 value=dashboard_features[0],
                 style={'width': '100%'},
                 # Optional: To keep default styling, do not set 'backgroundColor' and 'color'
-                # If you prefer light background with dark text, uncomment the line below
-                # style={'width': '100%', 'backgroundColor': '#ffffff', 'color': '#000000'},
             ),
         ], style={'width': '48%', 'display': 'inline-block', 'vertical-align': 'top', 'padding-right': '2%'}),
         html.Div([
@@ -173,8 +171,6 @@ app.layout = html.Div([
                 value=preprocessed_data['Champion'].unique()[0],
                 style={'width': '100%'},
                 # Optional: To keep default styling, do not set 'backgroundColor' and 'color'
-                # If you prefer light background with dark text, uncomment the line below
-                # style={'width': '100%', 'backgroundColor': '#ffffff', 'color': '#000000'},
             ),
         ], style={'width': '48%', 'display': 'inline-block', 'vertical-align': 'top', 'float': 'right', 'padding-left': '2%'}),
     ], style={'padding': '10px 0'}),
@@ -202,8 +198,23 @@ app.layout = html.Div([
             ], style={'padding': '20px'}),
         ], style={'backgroundColor': '#303030', 'color': '#ffffff'}),
         dcc.Tab(label='Generalized Dataset Insights', children=[
+            # *** Added General Information Div ***
+            html.Div([
+                html.H3("General Information"),
+                html.P(id='general-info', style={'color': '#ffffff', 'whiteSpace': 'pre-line', 'font-size': '16px'}),
+            ], style={'padding': '20px'}),
+            # Separator
+            html.Hr(style={'borderColor': '#ffffff', 'margin': '40px 0'}),
             html.Div([
                 dcc.Graph(id='scatter-plot'),  # Winrate vs Selected Feature
+            ], style={'padding': '20px'}),
+            # *** Added Picks and Bans Feature Importance Plots ***
+            html.Hr(style={'borderColor': '#ffffff', 'margin': '40px 0'}),
+            html.Div([
+                dcc.Graph(id='picks-feature-importance'),
+            ], style={'padding': '20px'}),
+            html.Div([
+                dcc.Graph(id='bans-feature-importance'),
             ], style={'padding': '20px'}),
             # Separator
             html.Hr(style={'borderColor': '#ffffff', 'margin': '40px 0'}),
@@ -552,7 +563,7 @@ def update_feature_importance(_):
         y=feature_importances.values,
         marker_color='lightgreen'
     )])
-    fig.update_layout(title='Feature Importances from Random Forest Regressor',
+    fig.update_layout(title='Feature Importances for Predicting Winrate',
                       xaxis_title='Features',
                       yaxis_title='Importance Score',
                       template=graph_template,
@@ -645,6 +656,109 @@ def update_pair_plot(_):
     return fig
 
 
+# *** Added Callback for General Information ***
+@app.callback(
+    Output('general-info', 'children'),
+    Input('feature-dropdown', 'value')  # Dummy input to trigger callback
+)
+def update_general_info(_):
+    # Compute the most picked champion
+    most_picked_champion = preprocessed_data.loc[preprocessed_data['Picks'].idxmax()]['Champion']
+    most_picked_picks = preprocessed_data['Picks'].max()
+
+    # Compute the most banned champion
+    most_banned_champion = preprocessed_data.loc[preprocessed_data['Bans'].idxmax()]['Champion']
+    most_banned_bans = preprocessed_data['Bans'].max()
+
+    # Construct the information string
+    general_info = f"**Most Picked Champion:** {most_picked_champion} ({most_picked_picks} picks)\n\n"
+    general_info += f"**Most Banned Champion:** {most_banned_champion} ({most_banned_bans} bans)\n\n"
+    general_info += f"Analyzing feature importances can help explain why these champions are highly picked or banned."
+
+    return general_info
+
+
+# *** Added Callbacks for Picks and Bans Feature Importances, probably works ***
+@app.callback(
+    Output('picks-feature-importance', 'figure'),
+    Input('feature-dropdown', 'value')  # Dummy input to trigger callback
+)
+def update_picks_feature_importance(_):
+    # Train a model to predict 'Picks'
+    feature_columns = ['Winrate', 'Presence', 'CSM', 'DPM', 'GPM', 'CSD@15', 'GD@15', 'XPD@15', 'KDA_numeric']
+    X = preprocessed_data[feature_columns]
+    y = preprocessed_data['Picks']
+
+    # Split and scale
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+    scaler_picks = StandardScaler()
+    X_train_scaled = scaler_picks.fit_transform(X_train)
+    X_test_scaled = scaler_picks.transform(X_test)
+
+    # Train Random Forest Regressor
+    rfr_picks = RandomForestRegressor(n_estimators=100, random_state=42)
+    rfr_picks.fit(X_train_scaled, y_train)
+
+    # Get feature importances
+    picks_importances = pd.Series(rfr_picks.feature_importances_, index=feature_columns).sort_values(ascending=False)
+
+    # Plot feature importances
+    fig = go.Figure([go.Bar(
+        x=picks_importances.index,
+        y=picks_importances.values,
+        marker_color='skyblue'
+    )])
+    fig.update_layout(title='Feature Importances for Predicting Picks',
+                      xaxis_title='Features',
+                      yaxis_title='Importance Score',
+                      template=graph_template,
+                      paper_bgcolor='#303030',
+                      plot_bgcolor='#303030',
+                      title_font=dict(color='#ffffff'),
+                      font=dict(color='#ffffff'))
+    return fig
+
+
+@app.callback(
+    Output('bans-feature-importance', 'figure'),
+    Input('feature-dropdown', 'value')  # Dummy input to trigger callback
+)
+def update_bans_feature_importance(_):
+    # Train a model to predict Bans
+    feature_columns = ['Winrate', 'Presence', 'CSM', 'DPM', 'GPM', 'CSD@15', 'GD@15', 'XPD@15', 'KDA_numeric']
+    X = preprocessed_data[feature_columns]
+    y = preprocessed_data['Bans']
+
+    # Split and scale
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+    scaler_bans = StandardScaler()
+    X_train_scaled = scaler_bans.fit_transform(X_train)
+    X_test_scaled = scaler_bans.transform(X_test)
+
+    # Train Random Forest Regressor
+    rfr_bans = RandomForestRegressor(n_estimators=100, random_state=42)
+    rfr_bans.fit(X_train_scaled, y_train)
+
+    # Get feature importances
+    bans_importances = pd.Series(rfr_bans.feature_importances_, index=feature_columns).sort_values(ascending=False)
+
+    # Plot feature importances
+    fig = go.Figure([go.Bar(
+        x=bans_importances.index,
+        y=bans_importances.values,
+        marker_color='salmon'
+    )])
+    fig.update_layout(title='Feature Importances for Predicting Bans',
+                      xaxis_title='Features',
+                      yaxis_title='Importance Score',
+                      template=graph_template,
+                      paper_bgcolor='#303030',
+                      plot_bgcolor='#303030',
+                      title_font=dict(color='#ffffff'),
+                      font=dict(color='#ffffff'))
+    return fig
+
+
 def main():
     # Preprocess the data and train models
     data = preprocess_data()
@@ -657,7 +771,7 @@ def main():
     # Selecting relevant features for prediction
     feature_columns = ['Picks', 'Bans', 'Presence', 'CSM', 'DPM', 'GPM', 'CSD@15', 'GD@15', 'XPD@15']
 
-    # Include 'KDA_numeric' if it exists
+    # Include 'KDA_numeric'
     if 'KDA_numeric' in data.columns:
         feature_columns.append('KDA_numeric')
 
@@ -732,7 +846,7 @@ def main():
     # Plotting Feature Importances
     plt.figure(figsize=(10, 6))
     sns.barplot(x=feature_importances.values, y=feature_importances.index, palette='viridis')
-    plt.title('Feature Importances')
+    plt.title('Feature Importances for Predicting Winrate')
     plt.xlabel('Importance Score')
     plt.ylabel('Features')
     plt.tight_layout()
@@ -743,7 +857,7 @@ def main():
     print(f"Linear Regression MSE: {mse_lr:.2f}, R^2: {r2_lr:.2f}")
     print(f"Random Forest Regressor MSE: {mse_rfr:.2f}, R^2: {r2_rfr:.2f}")
 
-    # Based on the R^2 scores, Random Forest Regressor may perform better
+    # Based on the R^2 scores, the model performances can be assessed
 
 
 if __name__ == '__main__':
